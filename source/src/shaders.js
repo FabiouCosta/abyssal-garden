@@ -262,9 +262,10 @@ fn amb(p: vec3f, n: vec3f, sky: f32, z: f32) -> vec3f {
 }
 fn zone(p: vec3f) -> f32 { return mix(g.sun.w, textureSampleLevel(tM, sC, p.xz / 384. + .5, 0.).b, .2); }
 fn side(p: vec3f, n: vec3f, open: f32, z: f32) -> vec3f { return mix(WCOL, PCOL, z) * exp(kd(z) * min(p.y, 0.)) * open * (1. - abs(n.y)) * .7; }
+// skylight at most 150 m along the ray: past that, terrain and the background behind it (vsB) get the same haze
 fn fog(c: vec3f, wp: vec3f, z: f32) -> vec3f {
   let v = wp - g.cam.xyz; let d = length(v); let rd = v / d;
-  return c * exp(-sg(z) * d) * ss(230., 185., d) + fogIn(g.cam.xyz, rd, d, z, g.sun.xyz) * (.58 + .42 * vol(wp).g);
+  return c * exp(-sg(z) * d) * ss(230., 185., d) + fogIn(g.cam.xyz, rd, d, z, g.sun.xyz) * (.58 + .42 * vol(g.cam.xyz + rd * min(d, 150.)).g);
 }
 fn qrot(q: vec4f, v: vec3f) -> vec3f { return v + 2. * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 `;
@@ -604,6 +605,18 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f };
   let refl = fogIn(i.wp, R, 300., z, g.sun.xyz) * 1.15;
   let c = mix(refl, sky, win);
   return fin(fog(c, i.wp, z));
+}
+// behind everything: where no terrain is drawn (it stops at ~240 m) the water looks as it does at that distance
+@vertex fn vsB(@builtin(vertex_index) i: u32) -> VO {
+  var o: VO;
+  let p = vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.;
+  o.wp = g.cam.xyz + g.fwd.xyz + g.right.xyz * (p.x * g.right.w) + g.up.xyz * (p.y * g.up.w);
+  o.cp = vec4f(p, 1e-7, 1.);
+  return o;
+}
+@fragment fn fsB(i: VO) -> @location(0) vec4f {
+  let p = g.cam.xyz + normalize(i.wp - g.cam.xyz) * 240.;
+  return fin(fog(vec3f(0.), p, zone(p)));
 }
 `;
 
